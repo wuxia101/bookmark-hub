@@ -1,0 +1,540 @@
+openapi: 3.1.0
+info:
+  title: BookmarkHub API
+  version: 1.0.0
+  summary: BookmarkHub search and protected submission API
+  description: |
+    BookmarkHub 是一个多读少写的网站书签收藏聚合平台。
+
+    当前只对外暴露两个核心接口：
+    - `GET /api/bookmarks/search`
+    - `POST /api/bookmarks/submissions`
+
+    对外部 Agent 的关键约束：
+    - 提交前优先先调用搜索接口，获取可用标签与快速标签
+    - `tagSlugs` 必须传 slug，不要传中文名或英文名
+    - 提交接口需要 `Authorization: Bearer <apikey>`
+    - AI 增强是可选能力，不保证每次都补全图片和简介
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: Bookmarks
+    description: Search and protected bookmark submission
+paths:
+  /api/bookmarks/search:
+    get:
+      tags:
+        - Bookmarks
+      operationId: searchBookmarks
+      summary: Search approved bookmarks with keyword, tag intersection, pagination, and optional AI rewrite
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            default: ""
+          description: Free-text query. Supports standard search and AI rewrite mode.
+        - name: tags
+          in: query
+          required: false
+          schema:
+            type: string
+            example: design-inspiration,design-news
+          description: Comma-separated tag slug list. Multiple tags are treated as intersection.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 60
+            default: 24
+        - name: searchMode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - standard
+              - ai
+            default: standard
+          description: |
+            `ai` mode first runs LLM query rewrite, then falls back to PostgreSQL lexical search.
+            This is not vector search.
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchBookmarksResponse"
+              examples:
+                standardSearch:
+                  summary: Standard search
+                  value:
+                    items:
+                      - id: 120
+                        name: "Lovers Magazine"
+                        url: "https://www.loversmagazine.com/"
+                        normalizedUrl: "https://www.loversmagazine.com/"
+                        logoUrl: "https://picsum.photos/seed/lovers-magazine-120-logo/128/128"
+                        coverUrl: "https://picsum.photos/seed/lovers-magazine-120-cover/960/540"
+                        descriptionZh: "聚焦设计与创意行业的在线杂志。"
+                        descriptionEn: "An online magazine focused on design and creativity."
+                        publishedAt: "2026-04-25T09:00:00.000Z"
+                        tags:
+                          - id: 1
+                            slug: "design-news"
+                            nameZh: "设计资讯"
+                            nameEn: "Design News"
+                            category: "editorial"
+                            siteCount: 40
+                    pagination:
+                      page: 1
+                      pageSize: 12
+                      totalItems: 1
+                      totalPages: 1
+                    filters:
+                      selectedTags:
+                        - "design-news"
+                      availableTags:
+                        - id: 1
+                          slug: "design-news"
+                          nameZh: "设计资讯"
+                          nameEn: "Design News"
+                          category: "editorial"
+                          siteCount: 40
+                      quickSelectTags:
+                        - id: 2
+                          slug: "design-inspiration"
+                          nameZh: "设计灵感"
+                          nameEn: "Design Inspiration"
+                          category: "curation"
+                          siteCount: 80
+                      tagSearch:
+                        total: 2
+                        topCategories:
+                          - "curation"
+                          - "editorial"
+                    meta:
+                      requestedMode: "standard"
+                      appliedMode: "standard"
+                      cacheable: true
+                      query: "design news"
+                aiSearch:
+                  summary: AI rewrite search
+                  value:
+                    items: []
+                    pagination:
+                      page: 1
+                      pageSize: 12
+                      totalItems: 0
+                      totalPages: 0
+                    filters:
+                      selectedTags:
+                        - "design-inspiration"
+                      availableTags: []
+                      quickSelectTags: []
+                      tagSearch:
+                        total: 2
+                        topCategories:
+                          - "curation"
+                    meta:
+                      requestedMode: "ai"
+                      appliedMode: "ai"
+                      cacheable: false
+                      query: "设计灵感网站"
+                      ai:
+                        used: true
+                        provider: "openai"
+                        rewrittenQuery: "design inspiration curated gallery"
+                        addedTagSlugs:
+                          - "design-inspiration"
+        "500":
+          description: Search failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/bookmarks/submissions:
+    post:
+      tags:
+        - Bookmarks
+      operationId: createBookmarkSubmission
+      summary: Submit a bookmark for manual review
+      description: |
+        This endpoint is protected and only intended for internal or authorized agents.
+
+        External Agent workflow:
+        1. Call `GET /api/bookmarks/search` first to inspect `filters.availableTags` and `filters.quickSelectTags`
+        2. Choose existing `tagSlugs`
+        3. Submit the bookmark with `Authorization: Bearer <apikey>`
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmissionCreateRequest"
+            examples:
+              minimal:
+                summary: Minimal manual submission
+                value:
+                  name: "Lovers Magazine"
+                  url: "https://www.loversmagazine.com/"
+                  tagSlugs:
+                    - "design-news"
+              enriched:
+                summary: Submission with optional AI enrichment enabled
+                value:
+                  name: "Lovers Magazine"
+                  url: "https://www.loversmagazine.com/"
+                  logoUrl: "https://images.example.com/lovers-logo.png"
+                  coverUrl: "https://images.example.com/lovers-cover.jpg"
+                  descriptionZh: "聚焦设计与创意行业的在线杂志。"
+                  descriptionEn: "An online magazine focused on design and creativity."
+                  searchAliasesZh: "设计杂志, 创意资讯, 品牌设计"
+                  searchAliasesEn: "design magazine, editorial design, creative news"
+                  tagSlugs:
+                    - "design-news"
+                  enableAiEnrichment: true
+      responses:
+        "202":
+          description: Submission accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionCreateResponse"
+              examples:
+                accepted:
+                  value:
+                    submissionId: 345
+                    status: "ai_enriched"
+                    duplicate: false
+                    siteId: 890
+                    aiEnrichmentAttempted: true
+                    message: "Submission accepted and queued for manual review."
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalidTag:
+                  value:
+                    error: "One or more tagSlugs are invalid or inactive"
+                invalidUrl:
+                  value:
+                    error: "Only http/https URLs are supported"
+        "401":
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    error: "Invalid API key"
+        "500":
+          description: Server failed unexpectedly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+  schemas:
+    BookmarkTag:
+      type: object
+      required:
+        - id
+        - slug
+        - nameZh
+        - nameEn
+        - category
+        - siteCount
+      properties:
+        id:
+          type: integer
+        slug:
+          type: string
+          description: Stable tag identifier used by the API
+        nameZh:
+          type: string
+        nameEn:
+          type: string
+        category:
+          type: string
+        siteCount:
+          type: integer
+
+    BookmarkCard:
+      type: object
+      required:
+        - id
+        - name
+        - url
+        - normalizedUrl
+        - logoUrl
+        - coverUrl
+        - descriptionZh
+        - descriptionEn
+        - publishedAt
+        - tags
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        normalizedUrl:
+          type: string
+          format: uri
+        logoUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+        coverUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+        descriptionZh:
+          type: string
+        descriptionEn:
+          type: string
+        publishedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookmarkTag"
+
+    SearchBookmarksResponse:
+      type: object
+      required:
+        - items
+        - pagination
+        - filters
+        - meta
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookmarkCard"
+        pagination:
+          type: object
+          required:
+            - page
+            - pageSize
+            - totalItems
+            - totalPages
+          properties:
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            totalItems:
+              type: integer
+            totalPages:
+              type: integer
+        filters:
+          type: object
+          required:
+            - selectedTags
+            - availableTags
+            - quickSelectTags
+            - tagSearch
+          properties:
+            selectedTags:
+              type: array
+              description: Actual applied tag slugs after AI rewrite merge
+              items:
+                type: string
+            availableTags:
+              type: array
+              items:
+                $ref: "#/components/schemas/BookmarkTag"
+            quickSelectTags:
+              type: array
+              items:
+                $ref: "#/components/schemas/BookmarkTag"
+            tagSearch:
+              type: object
+              required:
+                - total
+                - topCategories
+              properties:
+                total:
+                  type: integer
+                topCategories:
+                  type: array
+                  items:
+                    type: string
+        meta:
+          type: object
+          required:
+            - requestedMode
+            - appliedMode
+            - cacheable
+            - query
+          properties:
+            requestedMode:
+              type: string
+              enum:
+                - standard
+                - ai
+            appliedMode:
+              type: string
+              enum:
+                - standard
+                - ai
+            cacheable:
+              type: boolean
+            query:
+              type: string
+            ai:
+              type:
+                - object
+                - "null"
+              required:
+                - used
+                - provider
+                - rewrittenQuery
+                - addedTagSlugs
+              properties:
+                used:
+                  type: boolean
+                provider:
+                  type:
+                    - string
+                    - "null"
+                rewrittenQuery:
+                  type:
+                    - string
+                    - "null"
+                addedTagSlugs:
+                  type: array
+                  items:
+                    type: string
+
+    SubmissionCreateRequest:
+      type: object
+      required:
+        - name
+        - url
+      properties:
+        name:
+          type: string
+          description: Bookmark title
+        url:
+          type: string
+          format: uri
+          description: Must be http or https
+        logoUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+        coverUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+        descriptionZh:
+          type:
+            - string
+            - "null"
+          maxLength: 100
+        descriptionEn:
+          type:
+            - string
+            - "null"
+          maxLength: 100
+        searchAliasesZh:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+          description: Short comma-separated Chinese search aliases
+        searchAliasesEn:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+          description: Short comma-separated English search aliases
+        tagSlugs:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+          description: |
+            Existing tag slugs only. Do not send tag display names.
+            Recommend selecting from `filters.availableTags` or `filters.quickSelectTags` returned by search.
+          example:
+            - design-inspiration
+            - design-news
+        enableAiEnrichment:
+          type: boolean
+          default: true
+      additionalProperties: false
+
+    SubmissionCreateResponse:
+      type: object
+      required:
+        - submissionId
+        - status
+        - duplicate
+        - siteId
+        - aiEnrichmentAttempted
+        - message
+      properties:
+        submissionId:
+          type: integer
+        status:
+          type: string
+          enum:
+            - received
+            - ai_enriched
+            - duplicate
+        duplicate:
+          type: boolean
+        siteId:
+          type:
+            - integer
+            - "null"
+        aiEnrichmentAttempted:
+          type: boolean
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        reason:
+          type: string

@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bookmarkhub
+      POSTGRES_USER: bookmarkhub
+      POSTGRES_PASSWORD: bookmarkhub
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookmarkhub -d bookmarkhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - bookmarkhub-postgres:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      POSTGRES_URL: ${POSTGRES_URL:-postgres://bookmarkhub:bookmarkhub@postgres:5432/bookmarkhub}
+      BOOKMARKHUB_SUBMISSION_API_KEY: ${BOOKMARKHUB_SUBMISSION_API_KEY:-replace-with-internal-submit-key}
+      BOOKMARKHUB_PAGE_SIZE: ${BOOKMARKHUB_PAGE_SIZE:-24}
+      BOOKMARKHUB_MAX_PAGE_SIZE: ${BOOKMARKHUB_MAX_PAGE_SIZE:-60}
+      BOOKMARKHUB_SITE_NAME: ${BOOKMARKHUB_SITE_NAME:-BookmarkHub}
+      BOOKMARKHUB_AI_SEARCH_ENABLED: ${BOOKMARKHUB_AI_SEARCH_ENABLED:-false}
+      BOOKMARKHUB_AI_ENRICHMENT_ENABLED: ${BOOKMARKHUB_AI_ENRICHMENT_ENABLED:-false}
+      BOOKMARKHUB_AI_PROVIDER: ${BOOKMARKHUB_AI_PROVIDER:-openai}
+      BOOKMARKHUB_AI_MODEL: ${BOOKMARKHUB_AI_MODEL:-gpt-5.4-mini}
+      BOOKMARKHUB_AI_BASE_URL: ${BOOKMARKHUB_AI_BASE_URL:-}
+      BOOKMARKHUB_AI_API_KEY: ${BOOKMARKHUB_AI_API_KEY:-}
+    ports:
+      - "${PORT:-3000}:3000"
+
+volumes:
+  bookmarkhub-postgres:
