@@ -89,6 +89,57 @@ export type SubmissionCreateResponse = {
   message: string;
 };
 
+export type ReviewQueueItem = {
+  id: number;
+  name: string;
+  url: string;
+  normalizedUrl: string;
+  logoUrl: string | null;
+  coverUrl: string | null;
+  descriptionZh: string;
+  descriptionEn: string;
+  searchAliasesZh: string;
+  searchAliasesEn: string;
+  sourceType: "manual" | "ai_enriched";
+  status: SiteStatus;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewNote: string;
+  reviewedBy: string | null;
+  clientName: string | null;
+  lastSubmissionAt: string | null;
+  tags: BookmarkTag[];
+};
+
+export type ReviewQueueResponse = {
+  items: ReviewQueueItem[];
+  availableTags: BookmarkTag[];
+  meta: {
+    pendingCount: number;
+  };
+};
+
+export type ReviewDecisionRequest = {
+  siteId: number;
+  decision: "approved" | "rejected";
+  name: string;
+  url: string;
+  logoUrl?: string | null;
+  coverUrl?: string | null;
+  descriptionZh?: string | null;
+  descriptionEn?: string | null;
+  searchAliasesZh?: string | null;
+  searchAliasesEn?: string | null;
+  tagSlugs?: string[];
+  reviewNote?: string | null;
+};
+
+export type ReviewDecisionResponse = {
+  siteId: number;
+  status: Extract<SiteStatus, "approved" | "rejected">;
+  message: string;
+};
+
 export function normalizeSearchMode(value: string | null | undefined): SearchMode {
   return value === "ai" ? "ai" : "standard";
 }

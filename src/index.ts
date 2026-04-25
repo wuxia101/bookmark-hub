@@ -1,4 +1,5 @@
 import index from "./index.html";
+import { handleAdminReviewDecision, handleAdminReviewList } from "@/server/routes/admin";
 import { handleBookmarkSearch, handleBookmarkSubmission } from "@/server/routes/bookmarks";
 
 function resolvePort(value: string | undefined): number {
@@ -13,6 +14,8 @@ const server = Bun.serve({
   routes: {
     "/api/bookmarks/search": { GET: handleBookmarkSearch },
     "/api/bookmarks/submissions": { POST: handleBookmarkSubmission },
+    "/api/admin/reviews": { GET: handleAdminReviewList },
+    "/api/admin/reviews/decision": { POST: handleAdminReviewDecision },
     "/*": index,
   },
 

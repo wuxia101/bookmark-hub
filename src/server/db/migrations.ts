@@ -165,6 +165,13 @@ ALTER TABLE sites ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (
 CREATE INDEX IF NOT EXISTS idx_sites_search_vector ON sites USING GIN(search_vector);
     `,
   },
+  {
+    id: "004_review_metadata",
+    sql: `
+ALTER TABLE sites ADD COLUMN IF NOT EXISTS review_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE sites ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+    `,
+  },
 ];
 
 export async function runMigrations() {

@@ -1,4 +1,4 @@
-import type { SubmissionCreateRequest } from "@/shared/bookmarks";
+import type { ReviewDecisionRequest, SubmissionCreateRequest } from "@/shared/bookmarks";
 
 function countChars(value: string): number {
   return Array.from(value).length;
@@ -56,6 +56,22 @@ export function validateTagSlugs(tagSlugs: unknown): string[] {
   return cleaned;
 }
 
+export function validateSiteId(value: unknown, field = "siteId"): number {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    throw new Error(`${field} must be a positive integer`);
+  }
+  return numeric;
+}
+
+export function validateReviewNote(value: string | null | undefined): string {
+  const normalized = value?.trim() ?? "";
+  if (countChars(normalized) > 400) {
+    throw new Error("reviewNote must be 400 characters or fewer");
+  }
+  return normalized;
+}
+
 export function validateSubmissionPayload(payload: unknown): SubmissionCreateRequest {
   if (!payload || typeof payload !== "object") {
     throw new Error("Request body must be a JSON object");
@@ -73,5 +89,32 @@ export function validateSubmissionPayload(payload: unknown): SubmissionCreateReq
     searchAliasesEn: validateAliasText(input.searchAliasesEn as string | null | undefined, "searchAliasesEn"),
     tagSlugs: validateTagSlugs(input.tagSlugs),
     enableAiEnrichment: input.enableAiEnrichment === undefined ? true : Boolean(input.enableAiEnrichment),
+  };
+}
+
+export function validateReviewDecisionPayload(payload: unknown): ReviewDecisionRequest {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Request body must be a JSON object");
+  }
+
+  const input = payload as Record<string, unknown>;
+  const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
+  if (!decision) {
+    throw new Error("decision must be approved or rejected");
+  }
+
+  return {
+    siteId: validateSiteId(input.siteId),
+    decision,
+    name: requireString(input.name, "name"),
+    url: requireString(input.url, "url"),
+    logoUrl: validateOptionalUrl(input.logoUrl as string | null | undefined, "logoUrl"),
+    coverUrl: validateOptionalUrl(input.coverUrl as string | null | undefined, "coverUrl"),
+    descriptionZh: validateDescription(input.descriptionZh as string | null | undefined, "descriptionZh"),
+    descriptionEn: validateDescription(input.descriptionEn as string | null | undefined, "descriptionEn"),
+    searchAliasesZh: validateAliasText(input.searchAliasesZh as string | null | undefined, "searchAliasesZh"),
+    searchAliasesEn: validateAliasText(input.searchAliasesEn as string | null | undefined, "searchAliasesEn"),
+    tagSlugs: validateTagSlugs(input.tagSlugs),
+    reviewNote: validateReviewNote(input.reviewNote as string | null | undefined),
   };
 }

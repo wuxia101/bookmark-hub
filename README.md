@@ -54,6 +54,7 @@ cp config.tmpl .env
 ```bash
 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/bookmarkhub
 BOOKMARKHUB_SUBMISSION_API_KEY=replace-me
+BOOKMARKHUB_REVIEW_API_KEY=replace-me-review
 ```
 
 可选变量：
@@ -73,6 +74,7 @@ BOOKMARKHUB_AI_API_KEY=
 说明：
 
 - `BOOKMARKHUB_SUBMISSION_API_KEY` 只用于受保护收录接口
+- `BOOKMARKHUB_REVIEW_API_KEY` 只用于审核接口与审核页面
 - `BOOKMARKHUB_AI_API_KEY` 只用于 AI provider
 - `BOOKMARKHUB_AI_SEARCH_ENABLED=true` 时，AI 搜索走 `query rewrite`，不是向量检索
 - 当前不做 embeddings / vector search
@@ -123,7 +125,7 @@ sh scripts/docker-down.sh
 ### Frontend
 
 - `src/frontend.tsx`: React 启动入口
-- `src/App.tsx`: 搜索页 UI
+- `src/App.tsx`: 搜索页 + 审核台 UI
 
 ### Data
 
@@ -182,9 +184,14 @@ AI 增强失败时会自动降级，不阻断提交。
 
 - `GET /api/bookmarks/search`
 - `POST /api/bookmarks/submissions`
+- `GET /api/admin/reviews`
+- `POST /api/admin/reviews/decision`
 
 `POST /api/bookmarks/submissions` 需要 `Authorization: Bearer <apikey>`。
 这里的 `apikey` 只用于“受保护收录接口”鉴权，不等于 AI 模型服务的 `BOOKMARKHUB_AI_API_KEY`。
+
+`/api/admin/reviews*` 需要 `Authorization: Bearer <BOOKMARKHUB_REVIEW_API_KEY>`。
+搜索页右上角可以切换到审核台，支持查看待审核列表、修正字段和标签、通过发布、拒绝并写入审核备注。
 
 如果要给外部 Agent 或自动化工具接入，建议直接使用：
 
@@ -198,7 +205,7 @@ AI 增强失败时会自动降级，不阻断提交。
 - `ci.yml`
   - 在 `push / pull_request` 时执行测试、类型检查、构建、Docker build 校验
 - `docker-publish.yml`
-  - 在推送 Git tag（如 `v0.1.0`）时自动构建并推送 Docker 镜像到 Docker Hub
+  - 在推送 Git tag（如 `v0.2.0`）时自动构建并推送 Docker 镜像到 Docker Hub
 
 Docker Hub secrets：
 
@@ -214,8 +221,8 @@ Docker Hub secrets：
 发布示例：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ## Security

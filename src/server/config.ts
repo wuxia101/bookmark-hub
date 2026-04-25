@@ -18,6 +18,7 @@ export const config = {
   aiSearchEnabled: parseBoolean(process.env.BOOKMARKHUB_AI_SEARCH_ENABLED, false),
   aiEnrichmentEnabled: parseBoolean(process.env.BOOKMARKHUB_AI_ENRICHMENT_ENABLED, false),
   submissionApiKey: process.env.BOOKMARKHUB_SUBMISSION_API_KEY ?? "",
+  reviewApiKey: process.env.BOOKMARKHUB_REVIEW_API_KEY ?? "",
   aiProvider: process.env.BOOKMARKHUB_AI_PROVIDER ?? "",
   aiModel: process.env.BOOKMARKHUB_AI_MODEL ?? "",
   aiBaseUrl: process.env.BOOKMARKHUB_AI_BASE_URL ?? "",

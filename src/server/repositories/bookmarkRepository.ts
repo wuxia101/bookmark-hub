@@ -1,5 +1,5 @@
 import { db } from "@/server/db/client";
-import type { SearchBookmarksRequest } from "@/shared/bookmarks";
+import type { ReviewQueueItem, SearchBookmarksRequest } from "@/shared/bookmarks";
 
 type SiteRow = {
   id: number | bigint;
@@ -12,6 +12,14 @@ type SiteRow = {
   description_en: string;
   search_aliases_zh: string;
   search_aliases_en: string;
+  source_type?: "manual" | "ai_enriched";
+  status?: string;
+  submitted_at?: string | Date | null;
+  reviewed_at?: string | Date | null;
+  review_note?: string;
+  reviewed_by?: string | null;
+  client_name?: string | null;
+  last_submission_at?: string | Date | null;
   published_at: string | Date | null;
 };
 
@@ -83,6 +91,22 @@ export async function findSiteByNormalizedUrl(normalizedUrl: string): Promise<Si
     SELECT id, status, normalized_url
     FROM sites
     WHERE normalized_url = ${normalizedUrl}
+    LIMIT 1
+  `;
+
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    status: row.status,
+    normalizedUrl: row.normalized_url,
+  };
+}
+
+export async function findSiteById(id: number): Promise<SiteRecord | null> {
+  const [row] = await db<{ id: number | bigint; status: string; normalized_url: string }[]>`
+    SELECT id, status, normalized_url
+    FROM sites
+    WHERE id = ${id}
     LIMIT 1
   `;
 
@@ -208,6 +232,101 @@ export async function searchApprovedSites(input: SearchBookmarksRequest): Promis
   };
 }
 
+export async function listPendingReviewSites(): Promise<ReviewQueueItem[]> {
+  const items = await db<SiteRow[]>`
+    SELECT
+      s.id,
+      s.name,
+      s.url,
+      s.normalized_url,
+      s.logo_url,
+      s.cover_url,
+      s.description_zh,
+      s.description_en,
+      s.search_aliases_zh,
+      s.search_aliases_en,
+      s.source_type,
+      s.status,
+      s.submitted_at,
+      s.reviewed_at,
+      s.review_note,
+      s.reviewed_by,
+      sr.client_name,
+      sr.created_at AS last_submission_at,
+      s.published_at
+    FROM sites s
+    LEFT JOIN LATERAL (
+      SELECT client_name, created_at
+      FROM submission_records sr
+      WHERE sr.site_id = s.id
+      ORDER BY sr.created_at DESC, sr.id DESC
+      LIMIT 1
+    ) sr ON TRUE
+    WHERE s.status = 'pending_review'
+    ORDER BY s.submitted_at DESC NULLS LAST, s.id DESC
+  `;
+
+  const siteIds = items.map(item => Number(item.id));
+  const tagRows = siteIds.length
+    ? await db<(TagRow & { site_id: number | bigint })[]>`
+        SELECT
+          st.site_id,
+          t.id,
+          t.slug,
+          COALESCE(tt_zh.name, t.name_zh) AS name_zh,
+          COALESCE(tt_en.name, t.name_en) AS name_en,
+          t.category,
+          COUNT(approved_sites.id)::bigint AS site_count
+        FROM site_tags st
+        INNER JOIN tags t ON t.id = st.tag_id
+        LEFT JOIN tag_translations tt_zh ON tt_zh.tag_id = t.id AND tt_zh.locale = 'zh-CN'
+        LEFT JOIN tag_translations tt_en ON tt_en.tag_id = t.id AND tt_en.locale = 'en'
+        LEFT JOIN site_tags approved_st ON approved_st.tag_id = t.id
+        LEFT JOIN sites approved_sites ON approved_sites.id = approved_st.site_id AND approved_sites.status = 'approved'
+        WHERE st.site_id IN ${db(siteIds)}
+        GROUP BY st.site_id, t.id, tt_zh.name, tt_en.name
+        ORDER BY t.sort_order ASC, COALESCE(tt_zh.name, t.name_zh) ASC, t.slug ASC
+      `
+    : [];
+
+  const tagsBySiteId = new Map<number, TagRow[]>();
+  for (const row of tagRows) {
+    const siteId = Number(row.site_id);
+    const bucket = tagsBySiteId.get(siteId) ?? [];
+    bucket.push(row);
+    tagsBySiteId.set(siteId, bucket);
+  }
+
+  return items.map(item => ({
+    id: Number(item.id),
+    name: item.name,
+    url: item.url,
+    normalizedUrl: item.normalized_url,
+    logoUrl: item.logo_url,
+    coverUrl: item.cover_url,
+    descriptionZh: item.description_zh,
+    descriptionEn: item.description_en,
+    searchAliasesZh: item.search_aliases_zh,
+    searchAliasesEn: item.search_aliases_en,
+    sourceType: item.source_type ?? "manual",
+    status: (item.status ?? "pending_review") as ReviewQueueItem["status"],
+    submittedAt: item.submitted_at ? new Date(item.submitted_at).toISOString() : null,
+    reviewedAt: item.reviewed_at ? new Date(item.reviewed_at).toISOString() : null,
+    reviewNote: item.review_note ?? "",
+    reviewedBy: item.reviewed_by ?? null,
+    clientName: item.client_name ?? null,
+    lastSubmissionAt: item.last_submission_at ? new Date(item.last_submission_at).toISOString() : null,
+    tags: (tagsBySiteId.get(Number(item.id)) ?? []).map(tag => ({
+      id: Number(tag.id),
+      slug: tag.slug,
+      nameZh: tag.name_zh,
+      nameEn: tag.name_en,
+      category: tag.category,
+      siteCount: Number(tag.site_count ?? 0),
+    })),
+  }));
+}
+
 export async function createOrUpdatePendingSite(input: {
   existingSiteId?: number | null;
   name: string;
@@ -330,4 +449,54 @@ export async function createSubmissionRecord(input: {
   }
 
   return Number(row.id);
+}
+
+export async function createReviewDecision(input: {
+  siteId: number;
+  decision: "approved" | "rejected";
+  reviewer: string;
+  reviewNote: string;
+  name: string;
+  url: string;
+  normalizedUrl: string;
+  logoUrl: string | null;
+  coverUrl: string | null;
+  descriptionZh: string;
+  descriptionEn: string;
+  searchAliasesZh: string;
+  searchAliasesEn: string;
+  tagText: string;
+  tagIds: number[];
+}): Promise<void> {
+  await db.begin(async tx => {
+    await tx`
+      UPDATE sites
+      SET
+        name = ${input.name},
+        url = ${input.url},
+        normalized_url = ${input.normalizedUrl},
+        logo_url = ${input.logoUrl},
+        cover_url = ${input.coverUrl},
+        description_zh = ${input.descriptionZh},
+        description_en = ${input.descriptionEn},
+        search_aliases_zh = ${input.searchAliasesZh},
+        search_aliases_en = ${input.searchAliasesEn},
+        tag_text = ${input.tagText},
+        status = ${input.decision},
+        reviewed_at = NOW(),
+        reviewed_by = ${input.reviewer},
+        review_note = ${input.reviewNote},
+        published_at = CASE
+          WHEN ${input.decision} = 'approved' THEN COALESCE(published_at, NOW())
+          ELSE NULL
+        END
+      WHERE id = ${input.siteId}
+    `;
+
+    await tx`DELETE FROM site_tags WHERE site_id = ${input.siteId}`;
+    if (input.tagIds.length) {
+      const records = input.tagIds.map(tagId => ({ site_id: input.siteId, tag_id: tagId }));
+      await tx`INSERT INTO site_tags ${tx(records)}`;
+    }
+  });
 }
