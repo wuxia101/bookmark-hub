@@ -29,6 +29,7 @@ services:
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
       POSTGRES_URL: ${POSTGRES_URL:-postgres://bookmarkhub:bookmarkhub@postgres:5432/bookmarkhub}
       BOOKMARKHUB_SUBMISSION_API_KEY: ${BOOKMARKHUB_SUBMISSION_API_KEY:-replace-with-internal-submit-key}
+      BOOKMARKHUB_REVIEW_API_KEY: ${BOOKMARKHUB_REVIEW_API_KEY:-replace-with-internal-review-key}
       BOOKMARKHUB_PAGE_SIZE: ${BOOKMARKHUB_PAGE_SIZE:-24}
       BOOKMARKHUB_MAX_PAGE_SIZE: ${BOOKMARKHUB_MAX_PAGE_SIZE:-60}
       BOOKMARKHUB_SITE_NAME: ${BOOKMARKHUB_SITE_NAME:-BookmarkHub}
