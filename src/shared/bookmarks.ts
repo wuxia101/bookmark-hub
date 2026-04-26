@@ -116,6 +116,7 @@ export type ReviewQueueResponse = {
   availableTags: BookmarkTag[];
   meta: {
     pendingCount: number;
+    aiAssistAvailable: boolean;
   };
 };
 

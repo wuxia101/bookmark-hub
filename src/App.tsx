@@ -199,10 +199,14 @@ function getUiCopy(language: Language) {
       reviewNoTags: "未选择标签",
       reviewQueueHint: "可在通过前直接修正字段和标签",
       reviewTagRequired: "通过发布前至少选择一个标签",
+      reviewAiAssistReady: "AI 终审已启用，可在发布时自动补全标签和缺失字段",
+      reviewAiAssistMissing: "未配置 AI 终审，发布前需要手动设置至少一个标签",
       reviewNewTag: "新增标签",
       reviewNewTagPlaceholder: "输入新标签名称后添加",
       reviewNewTagAdd: "添加标签",
       reviewNewTagDuplicate: "新标签与现有标签重复",
+      reviewTagSuggestions: "标签建议",
+      reviewTagHint: "回车添加，方向键选择建议，退格删除最后一个新标签",
     };
   }
 
@@ -266,10 +270,14 @@ function getUiCopy(language: Language) {
     reviewNoTags: "No tags selected",
     reviewQueueHint: "Edit fields and tags before approving",
     reviewTagRequired: "Select at least one tag before approving",
+    reviewAiAssistReady: "AI publish assist is enabled and can fill tags and missing fields on approval",
+    reviewAiAssistMissing: "AI publish assist is not configured, so at least one manual tag is required before approval",
     reviewNewTag: "New tag",
     reviewNewTagPlaceholder: "Enter a new tag name",
     reviewNewTagAdd: "Add Tag",
     reviewNewTagDuplicate: "New tag duplicates an existing tag",
+    reviewTagSuggestions: "Suggestions",
+    reviewTagHint: "Press Enter to add, use arrows for suggestions, Backspace removes the last new tag",
   };
 }
 
@@ -500,6 +508,7 @@ export function App() {
   const [reviewError, setReviewError] = useState("");
   const [isReviewLoading, setIsReviewLoading] = useState(false);
   const [reviewReloadNonce, setReviewReloadNonce] = useState(0);
+  const [reviewTagSuggestionIndex, setReviewTagSuggestionIndex] = useState(0);
   const [selectedReviewId, setSelectedReviewId] = useState<number | null>(null);
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft | null>(null);
   const [reviewActionState, setReviewActionState] = useState<"approved" | "rejected" | null>(null);
@@ -632,6 +641,10 @@ export function App() {
     setReviewDraft(current => (current && current.siteId === matched.id ? current : createReviewDraft(matched)));
   }, [reviewResponse, selectedReviewId]);
 
+  useEffect(() => {
+    setReviewTagSuggestionIndex(0);
+  }, [reviewDraft?.newTagInput, selectedReviewId]);
+
   const availableTags = response?.filters.availableTags ?? [];
   const quickSelectTags = response?.filters.quickSelectTags ?? [];
   const totalPages = response?.pagination.totalPages ?? 1;
@@ -652,6 +665,18 @@ export function App() {
   const reviewItems = reviewResponse?.items ?? [];
   const selectedReview = reviewItems.find(item => item.id === selectedReviewId) ?? null;
   const reviewAvailableTags = reviewResponse?.availableTags ?? [];
+  const reviewTagNeedle = reviewDraft?.newTagInput.trim().toLowerCase() ?? "";
+  const reviewTagSuggestions = reviewTagNeedle
+    ? reviewAvailableTags
+        .filter(tag => {
+          const matches =
+            tag.slug.toLowerCase().includes(reviewTagNeedle) ||
+            tag.nameZh.toLowerCase().includes(reviewTagNeedle) ||
+            tag.nameEn.toLowerCase().includes(reviewTagNeedle);
+          return matches && !reviewDraft?.tagSlugs.includes(tag.slug);
+        })
+        .slice(0, 8)
+    : [];
 
   function toggleTag(slug: string) {
     setSelectedTags(current => (current.includes(slug) ? current.filter(item => item !== slug) : [...current, slug]));
@@ -659,6 +684,7 @@ export function App() {
   }
 
   function toggleReviewTag(slug: string) {
+    setReviewTagSuggestionIndex(0);
     setReviewDraft(current => {
       if (!current) return current;
       return {
@@ -670,9 +696,10 @@ export function App() {
 
   function addNewReviewTag() {
     setReviewError("");
+    setReviewTagSuggestionIndex(0);
     setReviewDraft(current => {
       if (!current) return current;
-      const value = current.newTagInput.trim();
+      const value = current.newTagInput.trim().replace(/[，,]+$/g, "").trim();
       if (!value) return current;
 
       const duplicateExisting = reviewAvailableTags.some(tag => tag.slug.toLowerCase() === value.toLowerCase());
@@ -691,11 +718,26 @@ export function App() {
   }
 
   function removeNewReviewTag(name: string) {
+    setReviewTagSuggestionIndex(0);
     setReviewDraft(current =>
       current
         ? {
             ...current,
             newTagNames: current.newTagNames.filter(item => item !== name),
+          }
+        : current,
+    );
+  }
+
+  function applyReviewTagSuggestion(tag: BookmarkTag) {
+    setReviewError("");
+    setReviewTagSuggestionIndex(0);
+    setReviewDraft(current =>
+      current
+        ? {
+            ...current,
+            tagSlugs: current.tagSlugs.includes(tag.slug) ? current.tagSlugs : [...current.tagSlugs, tag.slug],
+            newTagInput: "",
           }
         : current,
     );
@@ -707,7 +749,12 @@ export function App() {
 
   async function submitReviewDecision(decision: "approved" | "rejected") {
     if (!reviewDraft || !reviewApiKey) return;
-    if (decision === "approved" && !reviewDraft.tagSlugs.length && !reviewDraft.newTagNames.length) {
+    if (
+      decision === "approved" &&
+      !reviewResponse?.meta.aiAssistAvailable &&
+      !reviewDraft.tagSlugs.length &&
+      !reviewDraft.newTagNames.length
+    ) {
       setReviewError(copy.reviewTagRequired);
       setReviewSuccess("");
       return;
@@ -819,6 +866,9 @@ export function App() {
                     <div className="text-sm text-muted-foreground">{copy.reviewQueueHint}</div>
                     <div className="text-sm text-foreground/84">
                       {copy.pendingCount}: {reviewResponse?.meta.pendingCount ?? 0}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {reviewResponse?.meta.aiAssistAvailable ? copy.reviewAiAssistReady : copy.reviewAiAssistMissing}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -1059,14 +1109,39 @@ export function App() {
                         {copy.reviewLatestRecord}: {formatDateTime(selectedReview.lastSubmissionAt, language)}
                       </div>
                     </div>
-                    <a
-                      href={selectedReview.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex h-11 items-center justify-center rounded-full border border-border px-4 text-sm text-foreground transition hover:border-foreground/40"
-                    >
-                      {copy.reviewOpenSite}
-                    </a>
+                    <div className="flex flex-col gap-3 lg:items-end">
+                      <a
+                        href={selectedReview.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex h-11 items-center justify-center rounded-full border border-border px-4 text-sm text-foreground transition hover:border-foreground/40"
+                      >
+                        {copy.reviewOpenSite}
+                      </a>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => submitReviewDecision("approved")}
+                          disabled={
+                            Boolean(reviewActionState) ||
+                            (!reviewResponse?.meta.aiAssistAvailable &&
+                              !reviewDraft.tagSlugs.length &&
+                              !reviewDraft.newTagNames.length)
+                          }
+                          className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-5 text-sm text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {reviewActionState === "approved" ? copy.reviewSaving : copy.reviewApprove}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => submitReviewDecision("rejected")}
+                          disabled={Boolean(reviewActionState)}
+                          className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-5 text-sm text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {reviewActionState === "rejected" ? copy.reviewSaving : copy.reviewReject}
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
@@ -1164,7 +1239,34 @@ export function App() {
                         value={reviewDraft.newTagInput}
                         onChange={event => updateReviewDraft("newTagInput", event.target.value)}
                         onKeyDown={event => {
+                          if (event.key === "ArrowDown") {
+                            if (!reviewTagSuggestions.length) return;
+                            event.preventDefault();
+                            setReviewTagSuggestionIndex(current => (current + 1) % reviewTagSuggestions.length);
+                            return;
+                          }
+                          if (event.key === "ArrowUp") {
+                            if (!reviewTagSuggestions.length) return;
+                            event.preventDefault();
+                            setReviewTagSuggestionIndex(current => (current - 1 + reviewTagSuggestions.length) % reviewTagSuggestions.length);
+                            return;
+                          }
+                          if (event.key === "Backspace" && !reviewDraft.newTagInput && reviewDraft.newTagNames.length) {
+                            event.preventDefault();
+                            removeNewReviewTag(reviewDraft.newTagNames[reviewDraft.newTagNames.length - 1]);
+                            return;
+                          }
                           if (event.key === "Enter") {
+                            event.preventDefault();
+                            const suggestion = reviewTagSuggestions[reviewTagSuggestionIndex];
+                            if (suggestion) {
+                              applyReviewTagSuggestion(suggestion);
+                              return;
+                            }
+                            addNewReviewTag();
+                            return;
+                          }
+                          if (event.key === "," || event.key === "，") {
                             event.preventDefault();
                             addNewReviewTag();
                           }
@@ -1180,6 +1282,29 @@ export function App() {
                         {copy.reviewNewTagAdd}
                       </button>
                     </div>
+                    <div className="text-xs text-muted-foreground">{copy.reviewTagHint}</div>
+                    {reviewTagSuggestions.length ? (
+                      <div className="rounded-[24px] border border-border bg-background p-2">
+                        <div className="px-3 pb-2 pt-1 text-xs text-muted-foreground">{copy.reviewTagSuggestions}</div>
+                        <div className="flex flex-wrap gap-2">
+                          {reviewTagSuggestions.map((tag, index) => (
+                            <button
+                              key={`suggest-${tag.slug}`}
+                              type="button"
+                              onClick={() => applyReviewTagSuggestion(tag)}
+                              className={[
+                                "rounded-full border px-3 py-1.5 text-xs transition",
+                                index === reviewTagSuggestionIndex
+                                  ? "border-sky-700 bg-sky-700 text-white"
+                                  : "border-border bg-card text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+                              ].join(" ")}
+                            >
+                              {language === "zh" ? tag.nameZh : tag.nameEn}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-2">
                       {reviewAvailableTags.map(tag => (
                         <ReviewTagToggle
@@ -1204,24 +1329,6 @@ export function App() {
                     />
                   </label>
 
-                  <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-                    <button
-                      type="button"
-                      onClick={() => submitReviewDecision("approved")}
-                      disabled={Boolean(reviewActionState) || (!reviewDraft.tagSlugs.length && !reviewDraft.newTagNames.length)}
-                      className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-5 text-sm text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {reviewActionState === "approved" ? copy.reviewSaving : copy.reviewApprove}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => submitReviewDecision("rejected")}
-                      disabled={Boolean(reviewActionState)}
-                      className="inline-flex h-11 items-center justify-center rounded-full bg-rose-600 px-5 text-sm text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {reviewActionState === "rejected" ? copy.reviewSaving : copy.reviewReject}
-                    </button>
-                  </div>
                 </div>
               )}
             </section>
