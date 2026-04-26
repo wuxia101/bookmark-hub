@@ -604,7 +604,14 @@ export function App() {
       return;
     }
 
-    const matched = items.find(item => item.id === selectedReviewId) ?? items[0];
+    const firstItem = items[0];
+    if (!firstItem) {
+      setSelectedReviewId(null);
+      setReviewDraft(null);
+      return;
+    }
+
+    const matched = items.find(item => item.id === selectedReviewId) ?? firstItem;
     if (matched.id !== selectedReviewId) {
       setSelectedReviewId(matched.id);
     }
