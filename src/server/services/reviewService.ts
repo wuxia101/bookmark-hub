@@ -10,6 +10,7 @@ import {
   listPendingReviewSites,
   resolveTagsBySlugs,
 } from "@/server/repositories/bookmarkRepository";
+import { isFindSimilarAvailable } from "@/server/services/similarSiteService";
 import { createAiEnrichmentProvider } from "@/server/services/ai";
 import type { BookmarkTag, SubmissionCreateRequest } from "@/shared/bookmarks";
 import type { ReviewDecisionRequest, ReviewDecisionResponse, ReviewQueueResponse } from "@/shared/bookmarks";
@@ -54,6 +55,7 @@ export async function getReviewQueue(): Promise<ReviewQueueResponse> {
     meta: {
       pendingCount: items.length,
       aiAssistAvailable: isAiReviewAvailable(),
+      findSimilarAvailable: isFindSimilarAvailable(),
     },
   };
 }

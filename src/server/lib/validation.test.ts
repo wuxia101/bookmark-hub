@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateReviewDecisionPayload, validateSubmissionPayload } from "@/server/lib/validation";
+import { validateReviewDecisionPayload, validateSimilarSiteImportPayload, validateSubmissionPayload } from "@/server/lib/validation";
 
 describe("validateSubmissionPayload", () => {
   test("accepts valid payloads", () => {
@@ -40,5 +40,10 @@ describe("validateSubmissionPayload", () => {
     expect(payload.decision).toBe("approved");
     expect(payload.tagSlugs).toEqual(["tools"]);
     expect(payload.newTagNames).toEqual(["Go Packages"]);
+  });
+
+  test("validates similar-site imports", () => {
+    const payload = validateSimilarSiteImportPayload({ siteId: 7 });
+    expect(payload.siteId).toBe(7);
   });
 });

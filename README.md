@@ -61,8 +61,10 @@ BOOKMARKHUB_REVIEW_API_KEY=replace-me-review
 可选变量：
 
 ```bash
+DEBUG=
 BOOKMARKHUB_AI_SEARCH_ENABLED=false
 BOOKMARKHUB_AI_ENRICHMENT_ENABLED=false
+BOOKMARKHUB_AI_AUTO_APPROVE_ENABLED=false
 BOOKMARKHUB_PAGE_SIZE=24
 BOOKMARKHUB_MAX_PAGE_SIZE=60
 BOOKMARKHUB_SITE_NAME=BookmarkHub
@@ -77,6 +79,8 @@ BOOKMARKHUB_AI_API_KEY=
 - `BOOKMARKHUB_SUBMISSION_API_KEY` 只用于受保护收录接口
 - `BOOKMARKHUB_REVIEW_API_KEY` 只用于审核接口与审核页面
 - `BOOKMARKHUB_AI_API_KEY` 只用于 AI provider
+- `DEBUG` 用于服务端调试日志，支持 `ai:*`、`ai:search`、`ai:enrichment`、`ai:similar`、`*`
+- `BOOKMARKHUB_AI_AUTO_APPROVE_ENABLED=true` 时，AI “找相似”导入可直接自动审批通过
 - `BOOKMARKHUB_AI_SEARCH_ENABLED=true` 时，AI 搜索走 `query rewrite`，不是向量检索
 - 当前不做 embeddings / vector search
 - `HOST` / `PORT` 用于服务监听地址
@@ -172,6 +176,21 @@ AI 搜索模式会先让 LLM 重写 query，再落回 PostgreSQL 检索：
 
 AI 增强失败时会自动降级，不阻断提交。
 
+如果要观察 agent / AI 调用日志，可以在 `.env` 里设置：
+
+```bash
+DEBUG=ai:*
+```
+
+可选值示例：
+
+- `DEBUG=ai:*` 打印全部 AI 调用
+- `DEBUG=ai:search` 只看 AI 搜索改写
+- `DEBUG=ai:enrichment` 只看录入和审核补全
+- `DEBUG=ai:similar` 只看“找相似”
+
+日志会输出请求摘要、耗时、结果数量和错误状态，不会打印完整 `BOOKMARKHUB_AI_API_KEY`。
+
 ## Image Strategy
 
 当前不接 S3 / 对象存储。
@@ -187,12 +206,20 @@ AI 增强失败时会自动降级，不阻断提交。
 - `POST /api/bookmarks/submissions`
 - `GET /api/admin/reviews`
 - `POST /api/admin/reviews/decision`
+- `POST /api/admin/similar-sites`
 
 `POST /api/bookmarks/submissions` 需要 `Authorization: Bearer <apikey>`。
 这里的 `apikey` 只用于“受保护收录接口”鉴权，不等于 AI 模型服务的 `BOOKMARKHUB_AI_API_KEY`。
 
 `/api/admin/reviews*` 需要 `Authorization: Bearer <BOOKMARKHUB_REVIEW_API_KEY>`。
 搜索页右上角可以切换到审核台，支持查看待审核列表、修正字段和标签、通过发布、拒绝并写入审核备注。
+
+当同时配置了 `BOOKMARKHUB_REVIEW_API_KEY`、`BOOKMARKHUB_AI_ENRICHMENT_ENABLED=true`、AI provider 参数后：
+
+- 搜索卡片会为管理员显示“找相似”
+- 点击后会用 AI 推荐相似网站并批量导入
+- 默认进入 `pending_review`
+- 如果 `BOOKMARKHUB_AI_AUTO_APPROVE_ENABLED=true` 且 AI 能补出标签，则可直接自动审批通过
 
 如果要给外部 Agent 或自动化工具接入，建议直接使用：
 

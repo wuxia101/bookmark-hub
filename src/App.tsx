@@ -6,6 +6,7 @@ import type {
   ReviewQueueResponse,
   SearchBookmarksResponse,
   SearchMode,
+  SimilarSiteImportResponse,
 } from "@/shared/bookmarks";
 import { startTransition, useEffect, useState } from "react";
 import "./index.css";
@@ -201,6 +202,10 @@ function getUiCopy(language: Language) {
       reviewTagRequired: "通过发布前至少选择一个标签",
       reviewAiAssistReady: "AI 终审已启用，可在发布时自动补全标签和缺失字段",
       reviewAiAssistMissing: "未配置 AI 终审，发布前需要手动设置至少一个标签",
+      findSimilar: "找相似",
+      similarImported: "相似网站已导入",
+      similarAutoApproved: "相似网站已自动审批",
+      similarFailed: "找相似失败",
       reviewNewTag: "新增标签",
       reviewNewTagPlaceholder: "输入新标签名称后添加",
       reviewNewTagAdd: "添加标签",
@@ -272,6 +277,10 @@ function getUiCopy(language: Language) {
     reviewTagRequired: "Select at least one tag before approving",
     reviewAiAssistReady: "AI publish assist is enabled and can fill tags and missing fields on approval",
     reviewAiAssistMissing: "AI publish assist is not configured, so at least one manual tag is required before approval",
+    findSimilar: "Find Similar",
+    similarImported: "Similar sites imported",
+    similarAutoApproved: "Similar sites auto-approved",
+    similarFailed: "Find similar failed",
     reviewNewTag: "New tag",
     reviewNewTagPlaceholder: "Enter a new tag name",
     reviewNewTagAdd: "Add Tag",
@@ -426,7 +435,15 @@ function ViewSwitch(props: { view: ViewMode; onChange: (view: ViewMode) => void;
   );
 }
 
-function BookmarkCardView(props: { item: BookmarkCard; language: Language; openLabel: string; submittedLabel: string }) {
+function BookmarkCardView(props: {
+  item: BookmarkCard;
+  language: Language;
+  openLabel: string;
+  submittedLabel: string;
+  findSimilarLabel?: string;
+  onFindSimilar?: (item: BookmarkCard) => void;
+  isFindingSimilar?: boolean;
+}) {
   const description = getDescription(props.item, props.language);
   const bannerStyle = {
     backgroundImage: `linear-gradient(to bottom, rgba(15,23,42,0.06), rgba(15,23,42,0.45)), url(${props.item.coverUrl})`,
@@ -436,8 +453,8 @@ function BookmarkCardView(props: { item: BookmarkCard; language: Language; openL
     <article className="overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
       <div className="h-40 bg-cover bg-center" style={bannerStyle} />
       <div className="relative px-5 pb-5 pt-4">
-        <div className="-mt-12 mb-4 flex items-end justify-between gap-4">
-          <div className="flex items-end gap-3">
+        <div className="-mt-12 mb-4 flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-end gap-3">
             <div className="flex size-16 items-center justify-center overflow-hidden rounded-2xl border border-white/70 bg-white shadow-lg">
               <img src={props.item.logoUrl ?? ""} alt={`${props.item.name} logo`} className="size-11 object-cover" />
             </div>
@@ -445,14 +462,26 @@ function BookmarkCardView(props: { item: BookmarkCard; language: Language; openL
               {formatDomain(props.item.url)}
             </div>
           </div>
-          <a
-            href={props.item.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-10 items-center rounded-full bg-foreground px-4 text-sm text-background transition hover:opacity-90"
-          >
-            {props.openLabel}
-          </a>
+          <div className="flex shrink-0 items-start gap-2 self-start">
+            {props.onFindSimilar ? (
+              <button
+                type="button"
+                onClick={() => props.onFindSimilar?.(props.item)}
+                disabled={props.isFindingSimilar}
+                className="inline-flex h-10 items-center rounded-full border border-border bg-background px-4 text-sm text-foreground transition hover:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {props.isFindingSimilar ? props.findSimilarLabel : props.findSimilarLabel}
+              </button>
+            ) : null}
+            <a
+              href={props.item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-10 items-center rounded-full bg-foreground px-4 text-sm text-background transition hover:opacity-90"
+            >
+              {props.openLabel}
+            </a>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -500,6 +529,7 @@ export function App() {
   const [language, setLanguage] = useState<Language>("zh");
   const [response, setResponse] = useState<SearchBookmarksResponse | null>(null);
   const [error, setError] = useState("");
+  const [searchNotice, setSearchNotice] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
   const [reviewKeyInput, setReviewKeyInput] = useState("");
@@ -513,6 +543,7 @@ export function App() {
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft | null>(null);
   const [reviewActionState, setReviewActionState] = useState<"approved" | "rejected" | null>(null);
   const [reviewSuccess, setReviewSuccess] = useState("");
+  const [similarFindingSiteId, setSimilarFindingSiteId] = useState<number | null>(null);
 
   const copy = getUiCopy(language);
   const debouncedQuery = useDebouncedValue(query, searchMode === "ai" ? AI_DEBOUNCE_MS : STANDARD_DEBOUNCE_MS);
@@ -555,6 +586,7 @@ export function App() {
 
     setIsLoading(true);
     setError("");
+    setSearchNotice("");
 
     fetch(`/api/bookmarks/search?${params.toString()}`, { signal: controller.signal })
       .then(async res => {
@@ -665,6 +697,9 @@ export function App() {
   const reviewItems = reviewResponse?.items ?? [];
   const selectedReview = reviewItems.find(item => item.id === selectedReviewId) ?? null;
   const reviewAvailableTags = reviewResponse?.availableTags ?? [];
+  const findSimilarEnabled = Boolean(
+    reviewApiKey && (response?.meta.admin?.findSimilarAvailable ?? reviewResponse?.meta.findSimilarAvailable),
+  );
   const reviewTagNeedle = reviewDraft?.newTagInput.trim().toLowerCase() ?? "";
   const reviewTagSuggestions = reviewTagNeedle
     ? reviewAvailableTags
@@ -818,6 +853,44 @@ export function App() {
     }
   }
 
+  async function handleFindSimilar(item: BookmarkCard) {
+    if (!reviewApiKey) {
+      setError(copy.reviewAuthFailed);
+      return;
+    }
+
+    setSimilarFindingSiteId(item.id);
+    setError("");
+    setSearchNotice("");
+
+    try {
+      const res = await fetch("/api/admin/similar-sites", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${reviewApiKey}`,
+        },
+        body: JSON.stringify({ siteId: item.id }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message ?? copy.similarFailed);
+      }
+
+      const data = (await res.json()) as SimilarSiteImportResponse;
+      const message =
+        data.approvedCount > 0
+          ? `${copy.similarAutoApproved}: ${data.approvedCount}`
+          : `${copy.similarImported}: ${data.pendingCount}`;
+      setSearchNotice(message);
+    } catch (findError) {
+      setError(findError instanceof Error ? findError.message : String(findError));
+    } finally {
+      setSimilarFindingSiteId(null);
+    }
+  }
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl px-4 pb-16 pt-6 sm:px-6 lg:px-8">
       <section className="overflow-hidden rounded-[36px] border border-border bg-card">
@@ -948,11 +1021,12 @@ export function App() {
             </div>
           </div>
 
-          {response && response.meta.requestedMode !== response.meta.appliedMode ? (
-            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{copy.aiFallback}</div>
-          ) : null}
+        {response && response.meta.requestedMode !== response.meta.appliedMode ? (
+          <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{copy.aiFallback}</div>
+        ) : null}
 
-          {error ? <div className="mb-5 rounded-2xl border border-destructive/30 px-4 py-3 text-sm text-destructive">{error}</div> : null}
+        {error ? <div className="mb-5 rounded-2xl border border-destructive/30 px-4 py-3 text-sm text-destructive">{error}</div> : null}
+        {searchNotice ? <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{searchNotice}</div> : null}
 
           {isLoading ? (
             <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -963,7 +1037,16 @@ export function App() {
           ) : response?.items.length ? (
             <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {response.items.map(item => (
-                <BookmarkCardView key={item.id} item={item} language={language} openLabel={copy.open} submittedLabel={copy.submitted} />
+                <BookmarkCardView
+                  key={item.id}
+                  item={item}
+                  language={language}
+                  openLabel={copy.open}
+                  submittedLabel={copy.submitted}
+                  findSimilarLabel={findSimilarEnabled ? copy.findSimilar : undefined}
+                  onFindSimilar={findSimilarEnabled ? handleFindSimilar : undefined}
+                  isFindingSimilar={similarFindingSiteId === item.id}
+                />
               ))}
             </div>
           ) : (

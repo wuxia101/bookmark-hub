@@ -12,11 +12,13 @@ function parseInteger(value: string | undefined, fallback: number): number {
 }
 
 export const config = {
+  debug: process.env.DEBUG ?? "",
   appName: process.env.BOOKMARKHUB_SITE_NAME ?? "BookmarkHub",
   pageSize: parseInteger(process.env.BOOKMARKHUB_PAGE_SIZE, DEFAULT_PAGE_SIZE),
   maxPageSize: parseInteger(process.env.BOOKMARKHUB_MAX_PAGE_SIZE, DEFAULT_MAX_PAGE_SIZE),
   aiSearchEnabled: parseBoolean(process.env.BOOKMARKHUB_AI_SEARCH_ENABLED, false),
   aiEnrichmentEnabled: parseBoolean(process.env.BOOKMARKHUB_AI_ENRICHMENT_ENABLED, false),
+  aiAutoApproveEnabled: parseBoolean(process.env.BOOKMARKHUB_AI_AUTO_APPROVE_ENABLED, false),
   submissionApiKey: process.env.BOOKMARKHUB_SUBMISSION_API_KEY ?? "",
   reviewApiKey: process.env.BOOKMARKHUB_REVIEW_API_KEY ?? "",
   aiProvider: process.env.BOOKMARKHUB_AI_PROVIDER ?? "",

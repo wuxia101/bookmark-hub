@@ -1,4 +1,4 @@
-import type { ReviewDecisionRequest, SubmissionCreateRequest } from "@/shared/bookmarks";
+import type { ReviewDecisionRequest, SimilarSiteImportRequest, SubmissionCreateRequest } from "@/shared/bookmarks";
 
 function countChars(value: string): number {
   return Array.from(value).length;
@@ -136,5 +136,16 @@ export function validateReviewDecisionPayload(payload: unknown): ReviewDecisionR
     tagSlugs: validateTagSlugs(input.tagSlugs),
     newTagNames: validateNewTagNames(input.newTagNames),
     reviewNote: validateReviewNote(input.reviewNote as string | null | undefined),
+  };
+}
+
+export function validateSimilarSiteImportPayload(payload: unknown): SimilarSiteImportRequest {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Request body must be a JSON object");
+  }
+
+  const input = payload as Record<string, unknown>;
+  return {
+    siteId: validateSiteId(input.siteId),
   };
 }

@@ -1,6 +1,6 @@
 import { db } from "@/server/db/client";
 import { resolveTagLocalization } from "@/server/tags/localization";
-import type { ReviewQueueItem, SearchBookmarksRequest } from "@/shared/bookmarks";
+import type { BookmarkCard, ReviewQueueItem, SearchBookmarksRequest } from "@/shared/bookmarks";
 
 type SiteRow = {
   id: number | bigint;
@@ -48,6 +48,13 @@ export type SiteRecord = {
   id: number;
   status: string;
   normalizedUrl: string;
+};
+
+export type FullSiteRecord = BookmarkCard & {
+  status: string;
+  searchAliasesZh: string;
+  searchAliasesEn: string;
+  sourceType: "manual" | "ai_enriched";
 };
 
 export async function findApprovedTags(): Promise<TagRow[]> {
@@ -206,6 +213,54 @@ export async function findSiteById(id: number): Promise<SiteRecord | null> {
     id: Number(row.id),
     status: row.status,
     normalizedUrl: row.normalized_url,
+  };
+}
+
+export async function findApprovedBookmarkCardById(id: number): Promise<FullSiteRecord | null> {
+  const [site] = await db<SiteRow[]>`
+    SELECT
+      s.id,
+      s.name,
+      s.url,
+      s.normalized_url,
+      s.logo_url,
+      s.cover_url,
+      s.description_zh,
+      s.description_en,
+      s.search_aliases_zh,
+      s.search_aliases_en,
+      s.source_type,
+      s.status,
+      s.published_at
+    FROM sites s
+    WHERE s.id = ${id} AND s.status = 'approved'
+    LIMIT 1
+  `;
+
+  if (!site) return null;
+  const tags = await findTagsBySiteId(Number(site.id));
+  return {
+    id: Number(site.id),
+    name: site.name,
+    url: site.url,
+    normalizedUrl: site.normalized_url,
+    logoUrl: site.logo_url,
+    coverUrl: site.cover_url,
+    descriptionZh: site.description_zh,
+    descriptionEn: site.description_en,
+    publishedAt: site.published_at ? new Date(site.published_at).toISOString() : null,
+    tags: tags.map(tag => ({
+      id: Number(tag.id),
+      slug: tag.slug,
+      nameZh: tag.name_zh,
+      nameEn: tag.name_en,
+      category: tag.category,
+      siteCount: Number(tag.site_count ?? 0),
+    })),
+    status: site.status ?? "approved",
+    searchAliasesZh: site.search_aliases_zh,
+    searchAliasesEn: site.search_aliases_en,
+    sourceType: site.source_type ?? "manual",
   };
 }
 
@@ -589,5 +644,102 @@ export async function createReviewDecision(input: {
       const records = input.tagIds.map(tagId => ({ site_id: input.siteId, tag_id: tagId }));
       await tx`INSERT INTO site_tags ${tx(records)}`;
     }
+  });
+}
+
+export async function createOrUpdateApprovedSite(input: {
+  existingSiteId?: number | null;
+  name: string;
+  url: string;
+  normalizedUrl: string;
+  logoUrl: string | null;
+  coverUrl: string | null;
+  descriptionZh: string;
+  descriptionEn: string;
+  searchAliasesZh: string;
+  searchAliasesEn: string;
+  tagText: string;
+  sourceType: "manual" | "ai_enriched";
+  reviewer: string;
+  reviewNote: string;
+  tagIds: number[];
+}): Promise<number> {
+  return db.begin(async tx => {
+    const [site] = input.existingSiteId
+      ? await tx<{ id: number | bigint }[]>`
+          UPDATE sites
+          SET
+            name = ${input.name},
+            url = ${input.url},
+            normalized_url = ${input.normalizedUrl},
+            logo_url = ${input.logoUrl},
+            cover_url = ${input.coverUrl},
+            description_zh = ${input.descriptionZh},
+            description_en = ${input.descriptionEn},
+            search_aliases_zh = ${input.searchAliasesZh},
+            search_aliases_en = ${input.searchAliasesEn},
+            tag_text = ${input.tagText},
+            source_type = ${input.sourceType},
+            status = 'approved',
+            reviewed_at = NOW(),
+            reviewed_by = ${input.reviewer},
+            review_note = ${input.reviewNote},
+            published_at = COALESCE(published_at, NOW())
+          WHERE id = ${input.existingSiteId}
+          RETURNING id
+        `
+      : await tx<{ id: number | bigint }[]>`
+          INSERT INTO sites (
+            name,
+            url,
+            normalized_url,
+            logo_url,
+            cover_url,
+            description_zh,
+            description_en,
+            search_aliases_zh,
+            search_aliases_en,
+            tag_text,
+            source_type,
+            status,
+            submitted_at,
+            reviewed_at,
+            reviewed_by,
+            review_note,
+            published_at
+          ) VALUES (
+            ${input.name},
+            ${input.url},
+            ${input.normalizedUrl},
+            ${input.logoUrl},
+            ${input.coverUrl},
+            ${input.descriptionZh},
+            ${input.descriptionEn},
+            ${input.searchAliasesZh},
+            ${input.searchAliasesEn},
+            ${input.tagText},
+            ${input.sourceType},
+            'approved',
+            NOW(),
+            NOW(),
+            ${input.reviewer},
+            ${input.reviewNote},
+            NOW()
+          )
+          RETURNING id
+        `;
+
+    if (!site) {
+      throw new Error("Failed to persist approved site");
+    }
+
+    const siteId = Number(site.id);
+    await tx`DELETE FROM site_tags WHERE site_id = ${siteId}`;
+    if (input.tagIds.length) {
+      const records = input.tagIds.map(tagId => ({ site_id: siteId, tag_id: tagId }));
+      await tx`INSERT INTO site_tags ${tx(records)}`;
+    }
+
+    return siteId;
   });
 }

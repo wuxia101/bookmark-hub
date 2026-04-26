@@ -28,6 +28,24 @@ export type BookmarkCard = {
   tags: BookmarkTag[];
 };
 
+export type SimilarSiteImportRequest = {
+  siteId: number;
+};
+
+export type SimilarSiteImportResponse = {
+  importedCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  duplicateCount: number;
+  items: Array<{
+    name: string;
+    url: string;
+    siteId: number | null;
+    status: "approved" | "pending_review" | "duplicate" | "failed";
+    message: string;
+  }>;
+};
+
 export type SearchBookmarksRequest = {
   q: string;
   tags: string[];
@@ -58,6 +76,9 @@ export type SearchBookmarksResponse = {
     appliedMode: SearchMode;
     cacheable: boolean;
     query: string;
+    admin: {
+      findSimilarAvailable: boolean;
+    };
     ai?: {
       used: boolean;
       provider: string | null;
@@ -117,6 +138,7 @@ export type ReviewQueueResponse = {
   meta: {
     pendingCount: number;
     aiAssistAvailable: boolean;
+    findSimilarAvailable: boolean;
   };
 };
 
