@@ -1,4 +1,5 @@
 import { db } from "@/server/db/client";
+import { resolveTagLocalization } from "@/server/tags/localization";
 import type { ReviewQueueItem, SearchBookmarksRequest } from "@/shared/bookmarks";
 
 type SiteRow = {
@@ -84,6 +85,96 @@ export async function resolveTagsBySlugs(slugs: string[]): Promise<TagRow[]> {
     WHERE t.slug IN ${db(slugs)} AND t.is_active = TRUE
     ORDER BY t.sort_order ASC, COALESCE(tt_zh.name, t.name_zh) ASC
   `;
+}
+
+export async function findTagsBySiteId(siteId: number): Promise<TagRow[]> {
+  return db<TagRow[]>`
+    SELECT
+      t.id,
+      t.slug,
+      COALESCE(tt_zh.name, t.name_zh) AS name_zh,
+      COALESCE(tt_en.name, t.name_en) AS name_en,
+      t.category
+    FROM site_tags st
+    INNER JOIN tags t ON t.id = st.tag_id
+    LEFT JOIN tag_translations tt_zh ON tt_zh.tag_id = t.id AND tt_zh.locale = 'zh-CN'
+    LEFT JOIN tag_translations tt_en ON tt_en.tag_id = t.id AND tt_en.locale = 'en'
+    WHERE st.site_id = ${siteId}
+    ORDER BY t.sort_order ASC, COALESCE(tt_zh.name, t.name_zh) ASC, t.slug ASC
+  `;
+}
+
+function slugifyTagName(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+export async function ensureTagsByNames(tagNames: string[]): Promise<TagRow[]> {
+  if (!tagNames.length) return [];
+
+  const results: TagRow[] = [];
+
+  for (const rawName of tagNames) {
+    const name = rawName.trim();
+    const slug = slugifyTagName(name);
+    if (!slug) {
+      throw new Error(`Cannot derive a valid slug from tag name: ${name}`);
+    }
+
+    const localized = resolveTagLocalization(slug, name);
+    const [existing] = await db<{ id: number | bigint }[]>`
+      SELECT id
+      FROM tags
+      WHERE slug = ${slug}
+      LIMIT 1
+    `;
+
+    const tagId = existing
+      ? Number(existing.id)
+      : Number(
+          (
+            await db<{ id: number | bigint }[]>`
+              INSERT INTO tags (slug, name_zh, name_en, category, sort_order)
+              VALUES (${slug}, ${localized.zhCN}, ${localized.en}, 'review-added', 0)
+              RETURNING id
+            `
+          )[0]?.id ?? 0,
+        );
+
+    if (!tagId) {
+      throw new Error(`Failed to create tag: ${slug}`);
+    }
+
+    await db.begin(async tx => {
+      await tx`
+        UPDATE tags
+        SET name_zh = ${localized.zhCN}, name_en = ${localized.en}
+        WHERE id = ${tagId}
+      `;
+      await tx`
+        INSERT INTO tag_translations (tag_id, locale, name)
+        VALUES (${tagId}, 'zh-CN', ${localized.zhCN}), (${tagId}, 'en', ${localized.en})
+        ON CONFLICT (tag_id, locale) DO UPDATE SET
+          name = EXCLUDED.name,
+          updated_at = NOW()
+      `;
+    });
+
+    results.push({
+      id: tagId,
+      slug,
+      name_zh: localized.zhCN,
+      name_en: localized.en,
+      category: "review-added",
+    });
+  }
+
+  return results;
 }
 
 export async function findSiteByNormalizedUrl(normalizedUrl: string): Promise<SiteRecord | null> {

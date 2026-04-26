@@ -32,11 +32,13 @@ describe("validateSubmissionPayload", () => {
       name: "BookmarkHub",
       url: "https://bookmarkhub.test",
       tagSlugs: ["tools"],
+      newTagNames: ["Go Packages"],
       reviewNote: "looks good",
     });
 
     expect(payload.siteId).toBe(12);
     expect(payload.decision).toBe("approved");
     expect(payload.tagSlugs).toEqual(["tools"]);
+    expect(payload.newTagNames).toEqual(["Go Packages"]);
   });
 });

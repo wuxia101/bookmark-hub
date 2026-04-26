@@ -1,13 +1,4 @@
-const TAG_TRANSLATIONS: Record<string, { zhCN: string; en: string }> = {
-  "design-inspiration": {
-    zhCN: "设计灵感",
-    en: "Design Inspiration",
-  },
-  "design-news": {
-    zhCN: "设计资讯",
-    en: "Design News",
-  },
-};
+import { TAG_TRANSLATIONS } from "@/server/tags/catalog";
 
 function titleizeSlug(slug: string) {
   return slug

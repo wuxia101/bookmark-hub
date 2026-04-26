@@ -10,6 +10,8 @@
     "build": "bun run build.ts",
     "test": "bun test",
     "db:migrate": "bun run src/server/db/migrate.ts",
+    "db:seed:tags": "bun run src/server/db/seedTags.ts",
+    "db:seed:china-site-taxonomy-tags": "bun run src/server/db/seedChinaSiteTaxonomyTags.ts",
     "db:seed:bookmarks": "bun run src/server/db/seedBookmarks.ts",
     "db:sync:tag-translations": "bun run src/server/db/syncTagTranslations.ts",
     "db:sync:site-aliases": "bun run src/server/db/syncSiteAliases.ts"

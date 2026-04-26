@@ -131,6 +131,7 @@ export type ReviewDecisionRequest = {
   searchAliasesZh?: string | null;
   searchAliasesEn?: string | null;
   tagSlugs?: string[];
+  newTagNames?: string[];
   reviewNote?: string | null;
 };
 

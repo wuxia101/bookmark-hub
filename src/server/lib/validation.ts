@@ -56,6 +56,25 @@ export function validateTagSlugs(tagSlugs: unknown): string[] {
   return cleaned;
 }
 
+export function validateNewTagNames(tagNames: unknown): string[] {
+  if (tagNames === undefined || tagNames === null) return [];
+  if (!Array.isArray(tagNames)) {
+    throw new Error("newTagNames must be an array");
+  }
+
+  const cleaned = [...new Set(tagNames.map(tag => String(tag).trim()).filter(Boolean))];
+  if (cleaned.length > 8) {
+    throw new Error("newTagNames cannot contain more than 8 items");
+  }
+  for (const name of cleaned) {
+    if (countChars(name) > 40) {
+      throw new Error("newTagNames items must be 40 characters or fewer");
+    }
+  }
+
+  return cleaned;
+}
+
 export function validateSiteId(value: unknown, field = "siteId"): number {
   const numeric = Number(value);
   if (!Number.isInteger(numeric) || numeric <= 0) {
@@ -115,6 +134,7 @@ export function validateReviewDecisionPayload(payload: unknown): ReviewDecisionR
     searchAliasesZh: validateAliasText(input.searchAliasesZh as string | null | undefined, "searchAliasesZh"),
     searchAliasesEn: validateAliasText(input.searchAliasesEn as string | null | undefined, "searchAliasesEn"),
     tagSlugs: validateTagSlugs(input.tagSlugs),
+    newTagNames: validateNewTagNames(input.newTagNames),
     reviewNote: validateReviewNote(input.reviewNote as string | null | undefined),
   };
 }

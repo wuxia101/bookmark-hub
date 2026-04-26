@@ -29,6 +29,8 @@ type ReviewDraft = {
   searchAliasesZh: string;
   searchAliasesEn: string;
   tagSlugs: string[];
+  newTagNames: string[];
+  newTagInput: string;
   reviewNote: string;
 };
 
@@ -129,6 +131,8 @@ function createReviewDraft(item: ReviewQueueItem): ReviewDraft {
     searchAliasesZh: item.searchAliasesZh,
     searchAliasesEn: item.searchAliasesEn,
     tagSlugs: item.tags.map(tag => tag.slug),
+    newTagNames: [],
+    newTagInput: "",
     reviewNote: item.reviewNote,
   };
 }
@@ -194,6 +198,11 @@ function getUiCopy(language: Language) {
       reviewOpenSite: "打开原站",
       reviewNoTags: "未选择标签",
       reviewQueueHint: "可在通过前直接修正字段和标签",
+      reviewTagRequired: "通过发布前至少选择一个标签",
+      reviewNewTag: "新增标签",
+      reviewNewTagPlaceholder: "输入新标签名称后添加",
+      reviewNewTagAdd: "添加标签",
+      reviewNewTagDuplicate: "新标签与现有标签重复",
     };
   }
 
@@ -256,6 +265,11 @@ function getUiCopy(language: Language) {
     reviewOpenSite: "Open site",
     reviewNoTags: "No tags selected",
     reviewQueueHint: "Edit fields and tags before approving",
+    reviewTagRequired: "Select at least one tag before approving",
+    reviewNewTag: "New tag",
+    reviewNewTagPlaceholder: "Enter a new tag name",
+    reviewNewTagAdd: "Add Tag",
+    reviewNewTagDuplicate: "New tag duplicates an existing tag",
   };
 }
 
@@ -654,12 +668,50 @@ export function App() {
     });
   }
 
+  function addNewReviewTag() {
+    setReviewError("");
+    setReviewDraft(current => {
+      if (!current) return current;
+      const value = current.newTagInput.trim();
+      if (!value) return current;
+
+      const duplicateExisting = reviewAvailableTags.some(tag => tag.slug.toLowerCase() === value.toLowerCase());
+      const duplicateNew = current.newTagNames.some(tag => tag.toLowerCase() === value.toLowerCase());
+      if (duplicateExisting || duplicateNew) {
+        setReviewError(copy.reviewNewTagDuplicate);
+        return current;
+      }
+
+      return {
+        ...current,
+        newTagNames: [...current.newTagNames, value],
+        newTagInput: "",
+      };
+    });
+  }
+
+  function removeNewReviewTag(name: string) {
+    setReviewDraft(current =>
+      current
+        ? {
+            ...current,
+            newTagNames: current.newTagNames.filter(item => item !== name),
+          }
+        : current,
+    );
+  }
+
   function updateReviewDraft<K extends keyof ReviewDraft>(key: K, value: ReviewDraft[K]) {
     setReviewDraft(current => (current ? { ...current, [key]: value } : current));
   }
 
   async function submitReviewDecision(decision: "approved" | "rejected") {
     if (!reviewDraft || !reviewApiKey) return;
+    if (decision === "approved" && !reviewDraft.tagSlugs.length && !reviewDraft.newTagNames.length) {
+      setReviewError(copy.reviewTagRequired);
+      setReviewSuccess("");
+      return;
+    }
 
     setReviewActionState(decision);
     setReviewError("");
@@ -677,6 +729,7 @@ export function App() {
       searchAliasesZh: reviewDraft.searchAliasesZh,
       searchAliasesEn: reviewDraft.searchAliasesEn,
       tagSlugs: reviewDraft.tagSlugs,
+      newTagNames: reviewDraft.newTagNames,
       reviewNote: reviewDraft.reviewNote,
     };
 
@@ -1092,6 +1145,41 @@ export function App() {
 
                   <div className="space-y-3">
                     <div className="text-sm text-muted-foreground">{copy.reviewTags}</div>
+                    {reviewDraft.newTagNames.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {reviewDraft.newTagNames.map(name => (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => removeNewReviewTag(name)}
+                            className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-900 transition hover:border-emerald-500"
+                          >
+                            + {name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="flex gap-3">
+                      <input
+                        value={reviewDraft.newTagInput}
+                        onChange={event => updateReviewDraft("newTagInput", event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            addNewReviewTag();
+                          }
+                        }}
+                        placeholder={copy.reviewNewTagPlaceholder}
+                        className="h-11 flex-1 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-foreground/40"
+                      />
+                      <button
+                        type="button"
+                        onClick={addNewReviewTag}
+                        className="inline-flex h-11 items-center justify-center rounded-full border border-border px-4 text-sm text-foreground transition hover:border-foreground/40"
+                      >
+                        {copy.reviewNewTagAdd}
+                      </button>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {reviewAvailableTags.map(tag => (
                         <ReviewTagToggle
@@ -1120,7 +1208,7 @@ export function App() {
                     <button
                       type="button"
                       onClick={() => submitReviewDecision("approved")}
-                      disabled={Boolean(reviewActionState)}
+                      disabled={Boolean(reviewActionState) || (!reviewDraft.tagSlugs.length && !reviewDraft.newTagNames.length)}
                       className="inline-flex h-11 items-center justify-center rounded-full bg-emerald-600 px-5 text-sm text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {reviewActionState === "approved" ? copy.reviewSaving : copy.reviewApprove}

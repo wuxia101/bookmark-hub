@@ -26,6 +26,7 @@ bun dev
 ```bash
 bun run build
 bun test
+bun run db:seed:tags
 bun run db:seed:bookmarks
 bun run db:sync:tag-translations
 bun run db:sync:site-aliases

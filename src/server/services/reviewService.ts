@@ -1,9 +1,11 @@
 import { normalizeUrl } from "@/server/lib/url";
 import {
   createReviewDecision,
+  ensureTagsByNames,
   findApprovedTags,
   findSiteById,
   findSiteByNormalizedUrl,
+  findTagsBySiteId,
   listPendingReviewSites,
   resolveTagsBySlugs,
 } from "@/server/repositories/bookmarkRepository";
@@ -50,9 +52,18 @@ export async function applyReviewDecision(
     throw new Error("Another site already uses this normalized URL");
   }
 
-  const tags = await resolveTagsBySlugs(payload.tagSlugs ?? []);
-  if (tags.length !== (payload.tagSlugs?.length ?? 0)) {
+  const requestedTagSlugs = payload.tagSlugs ?? [];
+  const resolvedTags = await resolveTagsBySlugs(requestedTagSlugs);
+  if (resolvedTags.length !== requestedTagSlugs.length) {
     throw new Error("One or more tagSlugs are invalid or inactive");
+  }
+  const createdTags = await ensureTagsByNames(payload.newTagNames ?? []);
+  const mergedTags = [...resolvedTags, ...createdTags];
+  const dedupedTags = [...new Map(mergedTags.map(tag => [tag.slug, tag])).values()];
+  const existingTags = dedupedTags.length ? [] : await findTagsBySiteId(payload.siteId);
+  const tags = dedupedTags.length ? dedupedTags : existingTags;
+  if (payload.decision === "approved" && !tags.length) {
+    throw new Error("Approved sites must keep at least one tag");
   }
 
   await createReviewDecision({
